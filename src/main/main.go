@@ -7,9 +7,8 @@ import (
 )
 
 func main() {
-
 	//创世块
-	bc :=block.NewBlockchain()
+	bc := block.NewBlockchain()
 	//添加第2块
 	bc.AddBlock("Send 1 BTC to even")
 	//添加第3块
@@ -19,12 +18,11 @@ func main() {
 		fmt.Printf("Prev. hash: %x\n", block.PrevBlockHash)
 		fmt.Printf("Data: %s\n", block.Data)
 		fmt.Printf("Hash: %x\n", block.Hash)
-		fmt.Printf("Nonce: %d\n",block.Nonce)
+		fmt.Printf("Nonce: %d\n", block.Nonce)
 		//校验数据
 		fmt.Printf("PoW: %s\n", strconv.FormatBool(block.Validate()))
 		fmt.Println()
 
 	}
-
 
 }

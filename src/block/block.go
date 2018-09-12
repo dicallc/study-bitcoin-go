@@ -1,5 +1,8 @@
 package block
+
 import (
+	"bytes"
+	"encoding/gob"
 	"time"
 )
 
@@ -13,12 +16,12 @@ type Block struct {
 }
 
 //生成一个新的区块方法
-func NewBlock(data string, prevBlockHash []byte) *Block{
+func NewBlock(data string, prevBlockHash []byte) *Block {
 	//GO语言给Block赋值{}里面属性顺序可以打乱，但必须制定元素 如{Timestamp:time.Now().Unix()...}
-	block := &Block{Timestamp:time.Now().Unix(), Data:[]byte(data), PrevBlockHash:prevBlockHash, Hash:[]byte{},Nonce:0}
+	block := &Block{Timestamp: time.Now().Unix(), Data: []byte(data), PrevBlockHash: prevBlockHash, Hash: []byte{}, Nonce: 0}
 
 	//工作证明
-	pow :=NewProofOfWork(block)
+	pow := NewProofOfWork(block)
 	//工作量证明返回计数器和hash
 	nonce, hash := pow.Run()
 	block.Hash = hash[:]
@@ -26,6 +29,23 @@ func NewBlock(data string, prevBlockHash []byte) *Block{
 	return block
 }
 
+//序列化Block
+func (block *Block) Serialize() []byte {
+	var result bytes.Buffer
+	encoder := gob.NewEncoder(&result)
+	err := encoder.Encode(block)
+	CheckErr(err)
+	return result.Bytes()
+}
+
+//反序列化
+func DeserializeBlock(d []byte) *Block {
+	var block Block
+	decoder := gob.NewDecoder(bytes.NewReader(d))
+	err := decoder.Decode(&block)
+	CheckErr(err)
+	return &block
+}
 
 //区块校验
 func (i *Block) Validate() bool {
@@ -33,6 +53,6 @@ func (i *Block) Validate() bool {
 }
 
 //创世块方法
-func  NewGenesisBlock() *Block {
+func NewGenesisBlock() *Block {
 	return NewBlock("Genesis Block", []byte{})
 }

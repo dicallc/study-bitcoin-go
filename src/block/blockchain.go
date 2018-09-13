@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/boltdb/bolt"
 	"log"
+	"os"
 )
 
 // 区块链
@@ -14,15 +15,32 @@ type Blockchain struct {
 
 // 保存区块数据
 func (bc *Blockchain) AddBlock(data string) {
-	////获取上一个区块
-	//prevBlock := bc.Blocks[len(bc.Blocks)-1]
-	////创建一个新的区块
-	//newBlock := NewBlock(data, prevBlock.Hash)
-	////新的区块添加到数组中
-	//bc.Blocks = append(bc.Blocks, newBlock)
+	var lastHash []byte
+	err := bc.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(blocksBucket))
+		if bucket == nil {
+			os.Exit(1)
+		}
+		lastHash = bucket.Get([]byte(lastHashKey))
+		return nil
+	})
+	CheckErr(err)
+	//利最后一块hash 挖掘一块新的区块出来
+	newBlock := NewBlock(data, lastHash)
+	//在挖掘新块之后，我们将其序列化表示保存到数据块中并更新"l"，该密钥现在存储新块的哈希。
+	err = bc.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(blocksBucket))
+		err := bucket.Put(newBlock.Hash, newBlock.Serialize())
+		CheckErr(err)
+		err = bucket.Put([]byte(lastHashKey), newBlock.Hash)
+		CheckErr(err)
+		bc.tip = newBlock.Hash
+		return nil
+	})
+
 }
 
-const dbFile = "db/blockchian.db"   //定义数据文件名
+const dbFile = "blockchian.db"      //定义数据文件名
 const blocksBucket = "blocks"       //区块桶
 const lastHashKey = "last_hash_key" //区块桶
 // 创建创世块
@@ -63,6 +81,36 @@ func NewBlockchain() *Blockchain {
 	return &bc
 }
 
+//迭代器，就是一个对象，它里面包含一个游标，一直向前（后）移动，完成这个容器的遍历
+
+type BlockchainIterator struct {
+	currentHash []byte   //当前hash
+	db          *bolt.DB //数据库
+}
+
+func (bc *Blockchain) Iterator() *BlockchainIterator {
+	bci := &BlockchainIterator{bc.tip, bc.db}
+	return bci
+}
+
+//迭代下一个区块
+func (i *BlockchainIterator) Next() *Block {
+	var block *Block
+	err := i.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(blocksBucket))
+		encodedBlock := bucket.Get(i.currentHash)
+		block = DeserializeBlock(encodedBlock)
+		return nil
+	})
+	CheckErr(err)
+	i.currentHash = block.PrevBlockHash
+	return block
+}
+
+//关闭方法
+func Close(bc *Blockchain) error {
+	return bc.db.Close()
+}
 func CheckErr(err error) {
 	if err != nil {
 		log.Panic(err)

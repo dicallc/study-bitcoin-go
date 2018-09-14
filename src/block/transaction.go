@@ -12,11 +12,11 @@ import (
 //交易事务
 type Transaction struct {
 	ID        []byte
-	TxInputs  []TXInput  //事物输入
-	TXOutputs []TXOutput //事物输出
+	TxInputs  []TXInput  //输入
+	TXOutputs []TXOutput //输出
 }
 
-//一个事物输入
+//指明交易发起人可支付资金的来源
 type TXInput struct {
 	Txid      []byte //交易ID的hash
 	Vout      int    //所引用Output的索引值

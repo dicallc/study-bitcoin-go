@@ -1,6 +1,7 @@
 package block
 
 import (
+	"encoding/hex"
 	"fmt"
 	"github.com/boltdb/bolt"
 	"log"
@@ -13,71 +14,142 @@ type Blockchain struct {
 	db  *bolt.DB //BoltDB数据库
 }
 
-// 保存区块数据
-func (bc *Blockchain) AddBlock(data string) {
-	var lastHash []byte
-	err := bc.db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte(blocksBucket))
-		if bucket == nil {
-			os.Exit(1)
-		}
-		lastHash = bucket.Get([]byte(lastHashKey))
-		return nil
-	})
-	CheckErr(err)
-	//利最后一块hash 挖掘一块新的区块出来
-	newBlock := NewBlock(data, lastHash)
-	//在挖掘新块之后，我们将其序列化表示保存到数据块中并更新"l"，该密钥现在存储新块的哈希。
-	err = bc.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte(blocksBucket))
-		err := bucket.Put(newBlock.Hash, newBlock.Serialize())
-		CheckErr(err)
-		err = bucket.Put([]byte(lastHashKey), newBlock.Hash)
-		CheckErr(err)
-		bc.tip = newBlock.Hash
-		return nil
-	})
+//返回指定地址能够支配的utxo的交易集合
+func (bc *Blockchain) FindUnspentTransactions(address string) []Transaction {
+	var unspentTXs []Transaction //
+	spentTXOs := make(map[string][]int)
+	bci := bc.Iterator()
+	for {
+		block := bci.Next()
+		//遍历交易
+		for _, tx := range block.Transactions {
+			txId := hex.EncodeToString(tx.ID) //交易id转成String
+			//去除挖矿奖励
+			if tx.IsCoinbase() == false {
+				//目的：找到已经消耗的UTXO，把他们放到一个集合里
+				//需要两个字段来表示使用过的utxo:a.交易id,b.output的缩影
+				for _, input := range tx.TxInputs {
+					if input.CanUnlockOutputWith(address) {
+						inTxID := hex.EncodeToString(input.Txid)
+						spentTXOs[inTxID] = append(spentTXOs[inTxID], input.Vout)
+					}
+				}
+			}
+			//遍历output 目的找到所有能支配的utxo
+		Outputs:
+			for outIdx, out := range tx.TXOutputs {
+				if spentTXOs[txId] != nil {
+					for _, spentOut := range spentTXOs[txId] {
+						if spentOut == outIdx {
+							continue Outputs
+						}
+					}
+				}
+				if out.CanBeUnlockedWith(address) {
+					unspentTXs = append(unspentTXs, *tx)
+				}
+			}
 
+		}
+		if len(block.PrevBlockHash) == 0 {
+			break
+		}
+	}
+	return unspentTXs
+}
+
+//寻找指定地址能够使用的utxo
+func (bc *Blockchain) FindUTXO(address string) []TXOutput {
+	var Utxos []TXOutput
+	//未使用的UTXO
+	unspentTransactions := bc.FindUnspentTransactions(address)
+	//遍历交易
+	for _, tx := range unspentTransactions {
+		//遍历output
+		for _, out := range tx.TXOutputs {
+			//当前地址拥有的utxo
+			if out.CanBeUnlockedWith(address) {
+				Utxos = append(Utxos, out)
+			}
+		}
+	}
+	return Utxos
+}
+
+//开采区块
+func (bc *Blockchain) AddBlock(transactions []*Transaction) {
+	var lastHash []byte //最新一个hash
+	err := bc.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(blocksBucket))
+		lastHash = b.Get([]byte("l"))
+
+		return nil
+	})
+	if err != nil {
+		log.Panic(err)
+	}
+	//创造一个新区块
+	newBlock := NewBlock(transactions, lastHash)
+	//修改"l"的hash
+	err = bc.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(blocksBucket))
+		err := b.Put(newBlock.Hash, newBlock.Serialize())
+		if err != nil {
+			log.Panic(err)
+		}
+		err = b.Put([]byte("l"), newBlock.Hash)
+		if err != nil {
+			log.Panic(err)
+		}
+		bc.tip = newBlock.Hash
+
+		return nil
+	})
+}
+func (bc *Blockchain) FindSpendableOutputs(address string, amount int) (int, map[string][]int) {
+	unspentOutputs := make(map[string][]int)
+	unspentTXs := bc.FindUnspentTransactions(address)
+	accumulated := 0
+Work:
+	for _, tx := range unspentTXs {
+		txID := hex.EncodeToString(tx.ID)
+		for outIdx, out := range tx.TXOutputs {
+			if out.CanBeUnlockedWith(address) && accumulated < amount {
+				accumulated += out.Value
+				unspentOutputs[txID] = append(unspentOutputs[txID], outIdx)
+
+				if accumulated >= amount {
+					break Work
+				}
+			}
+		}
+	}
+	return accumulated, unspentOutputs
 }
 
 const dbFile = "blockchian.db"      //定义数据文件名
 const blocksBucket = "blocks"       //区块桶
 const lastHashKey = "last_hash_key" //区块桶
 // 创建创世块
-func NewBlockchain() *Blockchain {
-	//go语言&表示获取存储的内存地址
-	var lastHash []byte
+func NewBlockchain(address string) *Blockchain {
+	if dbExists() == false {
+		fmt.Println("No existing blockchain found. Create one first.")
+		os.Exit(1)
+	}
+	var tip []byte
 	db, err := bolt.Open(dbFile, 0600, nil)
 	if err != nil {
 		log.Panic(err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
-		if b == nil {
-			//没有bucket，要去创建创世块。将数据填写到数据库的bucket中
-			fmt.Println("No existing blockchain found. Creating a new one...")
-			genesis := NewGenesisBlock()
-			//1.创建一个桶
-			bucket, err := tx.CreateBucket([]byte(blocksBucket))
-			CheckErr(err)
-			//2.将创世区块塞入桶中
-			err = bucket.Put(genesis.Hash, genesis.Serialize())
-			CheckErr(err)
-			//3.更新最后的hash
-			err = bucket.Put([]byte(lastHashKey), genesis.Hash)
-			CheckErr(err)
-			//4.返回最后的hash
-			lastHash = genesis.Hash
-		} else {
-			//有bucket，取出最后区块的hash
-			lastHash = b.Get([]byte(lastHashKey))
-		}
+		tip = b.Get([]byte("l"))
 		return nil
 	})
 	if err != nil {
 		log.Panic(err)
 	}
-	bc := Blockchain{lastHash, db}
+	bc := Blockchain{tip, db}
 	return &bc
 }
 
@@ -105,6 +177,82 @@ func (i *BlockchainIterator) Next() *Block {
 	CheckErr(err)
 	i.currentHash = block.PrevBlockHash
 	return block
+}
+func dbExists() bool {
+	if _, err := os.Stat(dbFile); os.IsNotExist(err) {
+		return false
+	}
+	return true
+}
+
+//创世块data
+const genesisCoinbaseData = "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks"
+
+// 创新一个新的区块数据
+func CreateBlockchain(address string) *Blockchain {
+	if dbExists() {
+		fmt.Println("Blockchain already exists.")
+		os.Exit(1)
+	}
+	var tip []byte
+	db, err := bolt.Open(dbFile, 0600, nil)
+	if err != nil {
+		log.Panic(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		cbtx := NewCoinbaseTX(address, genesisCoinbaseData)
+		genesis := NewGenesisBlock(cbtx)
+		b, err := tx.CreateBucket([]byte(blocksBucket))
+		if err != nil {
+			log.Panic(err)
+		}
+		err = b.Put(genesis.Hash, genesis.Serialize())
+		if err != nil {
+			log.Panic(err)
+		}
+		err = b.Put([]byte("l"), genesis.Hash)
+		if err != nil {
+			log.Panic(err)
+		}
+		tip = genesis.Hash
+		return nil
+	})
+	if err != nil {
+		log.Panic(err)
+	}
+	bc := Blockchain{tip, db}
+	return &bc
+}
+
+//开采区块
+func (bc *Blockchain) MineBlock(transactions []*Transaction) {
+	var lastHash []byte //最新一个hash
+	err := bc.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(blocksBucket))
+		lastHash = b.Get([]byte("l"))
+
+		return nil
+	})
+	if err != nil {
+		log.Panic(err)
+	}
+	//创造一个新区块
+	newBlock := NewBlock(transactions, lastHash)
+	//修改"l"的hash
+	err = bc.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(blocksBucket))
+		err := b.Put(newBlock.Hash, newBlock.Serialize())
+		if err != nil {
+			log.Panic(err)
+		}
+		err = b.Put([]byte("l"), newBlock.Hash)
+		if err != nil {
+			log.Panic(err)
+		}
+		bc.tip = newBlock.Hash
+
+		return nil
+	})
 }
 
 //关闭方法

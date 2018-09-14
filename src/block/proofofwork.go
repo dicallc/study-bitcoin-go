@@ -12,19 +12,20 @@ import (
 var (
 	maxNonce = math.MaxInt64
 )
+
 const targetBits = 20
 
 //工作量证明
 type ProofOfWork struct {
-	block  *Block //区块体
+	block  *Block   //区块体
 	target *big.Int //挖矿目标值
 }
 
 // 新的工作量证明，并且得到一个难度值
 func NewProofOfWork(b *Block) *ProofOfWork {
 	//这里将数字1左移256-20=236位得到难度计算值 //创建target,目标值是比特币动态调整的 2000块就调整下
-	target := big.NewInt(1)//000000000000000000...01
-	target.Lsh(target, uint(256-targetBits))//0x00000100000000
+	target := big.NewInt(1)                  //000000000000000000...01
+	target.Lsh(target, uint(256-targetBits)) //0x00000100000000
 
 	pow := &ProofOfWork{b, target}
 
@@ -37,7 +38,7 @@ func (pow *ProofOfWork) prepareData(nonce int) []byte {
 	data := bytes.Join(
 		[][]byte{
 			pow.block.PrevBlockHash,
-			pow.block.Data,
+			pow.block.HashTransactions(),
 			utils.IntToHex(pow.block.Timestamp),
 			utils.IntToHex(int64(targetBits)),
 			utils.IntToHex(int64(nonce)),
@@ -54,7 +55,7 @@ func (pow *ProofOfWork) Run() (int, []byte) {
 	var hash [32]byte
 	nonce := 0
 
-	fmt.Printf("Mining the block containing \"%s\"\n", pow.block.Data)
+	fmt.Printf("Mining the block containing \"%s\"\n", pow.block.HashTransactions())
 	for nonce < maxNonce {
 
 		data := pow.prepareData(nonce)
@@ -73,6 +74,7 @@ func (pow *ProofOfWork) Run() (int, []byte) {
 	fmt.Print("\n\n")
 	return nonce, hash[:]
 }
+
 // Validate validates block's PoW
 func (pow *ProofOfWork) Validate() bool {
 	var hashInt big.Int

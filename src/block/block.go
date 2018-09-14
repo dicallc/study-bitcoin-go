@@ -2,23 +2,24 @@ package block
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/gob"
 	"time"
 )
 
 //区块结构
 type Block struct {
-	Hash          []byte //hase值
-	Data          []byte //交易数据
-	PrevBlockHash []byte //存储前一个区块的Hase值
-	Timestamp     int64  //生成区块的时间
-	Nonce         int    //工作量证明算法的计数器
+	Hash          []byte         //hase值
+	Transactions  []*Transaction //交易数据
+	PrevBlockHash []byte         //存储前一个区块的Hase值
+	Timestamp     int64          //生成区块的时间
+	Nonce         int            //工作量证明算法的计数器
 }
 
 //生成一个新的区块方法
-func NewBlock(data string, prevBlockHash []byte) *Block {
+func NewBlock(transactions []*Transaction, prevBlockHash []byte) *Block {
 	//GO语言给Block赋值{}里面属性顺序可以打乱，但必须制定元素 如{Timestamp:time.Now().Unix()...}
-	block := &Block{Timestamp: time.Now().Unix(), Data: []byte(data), PrevBlockHash: prevBlockHash, Hash: []byte{}, Nonce: 0}
+	block := &Block{Timestamp: time.Now().Unix(), Transactions: transactions, PrevBlockHash: prevBlockHash, Hash: []byte{}, Nonce: 0}
 
 	//工作证明
 	pow := NewProofOfWork(block)
@@ -52,7 +53,18 @@ func (i *Block) Validate() bool {
 	return NewProofOfWork(i).Validate()
 }
 
+//粗略
+func (b *Block) HashTransactions() []byte {
+	var txHashes [][]byte
+	var txHash [32]byte
+	for _, tx := range b.Transactions {
+		txHashes = append(txHashes, tx.ID)
+	}
+	txHash = sha256.Sum256(bytes.Join(txHashes, []byte{}))
+	return txHash[:]
+}
+
 //创世块方法
-func NewGenesisBlock() *Block {
-	return NewBlock("Genesis Block", []byte{})
+func NewGenesisBlock(coinbase *Transaction) *Block {
+	return NewBlock([]*Transaction{coinbase}, []byte{})
 }

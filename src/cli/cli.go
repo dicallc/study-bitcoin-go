@@ -9,6 +9,12 @@ import (
 	"strconv"
 )
 
+const addblock = "addblock"
+const printchain = "printchain"
+const send = "send"
+const getbalance = "getbalance"
+const createblockchain = "createblockchain"
+
 type CLI struct {
 }
 
@@ -18,7 +24,7 @@ func (cli *CLI) createBlockchain(address string) {
 	fmt.Println("Done!")
 }
 
-func Start(bc *block.Blockchain) interface{} {
+func Start() interface{} {
 	cl := CLI{}
 	cl.run()
 	return nil
@@ -38,12 +44,6 @@ func (cli *CLI) getBalance(address string) {
 	fmt.Printf("Balance of '%s': %d\n", address, balance)
 }
 
-////添加区块数据
-//func (cli *CLI) addBlock(data string) {
-//	cli.bc.AddBlock(data)
-//	fmt.Println("Success!")
-//}
-//
 //打印区块链上所有区块数据
 func (cli *CLI) printChain() {
 	bc := block.NewBlockchain("")
@@ -91,15 +91,11 @@ func (cli *CLI) send(from, to string, amount int) {
 	fmt.Println("Success!")
 }
 
-const addblock = "addblock"
-const printchain = "printchain"
-const send = "send"
-
 // 执行命令方法
 func (cli *CLI) run() {
 	cli.validateArgs()
-	getBalanceCmd := flag.NewFlagSet("getbalance", flag.ExitOnError)
-	createBlockchainCmd := flag.NewFlagSet("createblockchain", flag.ExitOnError)
+	getBalanceCmd := flag.NewFlagSet(getbalance, flag.ExitOnError)
+	createBlockchainCmd := flag.NewFlagSet(createblockchain, flag.ExitOnError)
 	addBlockCmd := flag.NewFlagSet(addblock, flag.ExitOnError)
 	sendCmd := flag.NewFlagSet(send, flag.ExitOnError)
 	printChainCmd := flag.NewFlagSet(printchain, flag.ExitOnError)

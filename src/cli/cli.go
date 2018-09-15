@@ -31,7 +31,7 @@ func Start() interface{} {
 
 //查询余额
 func (cli *CLI) getBalance(address string) {
-	bc := block.NewBlockchain(address)
+	bc := block.GetBlockChainHandler()
 	defer block.Close(bc)
 	balance := 0
 	//查询所有未经使用的交易地址
@@ -84,7 +84,7 @@ func (cli *CLI) validateArgs() {
 
 //发送
 func (cli *CLI) send(from, to string, amount int) {
-	bc := block.NewBlockchain(from)
+	bc := block.GetBlockChainHandler()
 	defer block.Close(bc)
 
 	tx := block.NewUTXOTransaction(from, to, amount, bc)

@@ -75,19 +75,18 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transactio
 	var inputs []TXInput
 	var outputs []TXOutput
 	//返回合适的UTXO
-	acc, validOutputs := bc.FindSpendableOutputs(from, amount)
+	acc, validOutputs := bc.FindSuitableUTXOs(from, amount)
 	//判断是否有那么多可花费的币
 	if acc < amount {
 		log.Panic("ERROR: Not enough funds")
 	}
-	//1.创建inputs
-	for txid, outs := range validOutputs {
+	//遍历有效UTXO的合集
+	for txid, outIndexs := range validOutputs {
 		txID, err := hex.DecodeString(txid)
-		if err != nil {
-			log.Panic(err)
-		}
-		for _, out := range outs {
-			input := TXInput{txID, out, from}
+		CheckErr(err)
+		//遍历所有引用UTXO的索引，每一个索引需要创建一个Input
+		for _, outindex := range outIndexs {
+			input := TXInput{txID, outindex, from}
 			inputs = append(inputs, input)
 		}
 	}

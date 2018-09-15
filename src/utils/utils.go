@@ -1,8 +1,11 @@
 package utils
+
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"log"
+	"os"
 )
 
 func IntToHex(num int64) []byte {
@@ -13,4 +16,10 @@ func IntToHex(num int64) []byte {
 	}
 
 	return buff.Bytes()
+}
+func CheckErr(pos string, err error) {
+	if err != nil {
+		fmt.Println(" err occur:", err, "pos:", pos)
+		os.Exit(1)
+	}
 }

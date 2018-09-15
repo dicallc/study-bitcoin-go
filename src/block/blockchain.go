@@ -18,10 +18,11 @@ type Blockchain struct {
 func (bc *Blockchain) FindUnspentTransactions(address string) []Transaction {
 	var unspentTXs []Transaction //
 	spentTXOs := make(map[string][]int)
+	//迭代所有区块
 	bci := bc.Iterator()
 	for {
 		block := bci.Next()
-		//遍历交易
+		//从区块中取出账本迭代UTXO
 		for _, tx := range block.Transactions {
 			txId := hex.EncodeToString(tx.ID) //交易id转成String
 			//去除挖矿奖励
@@ -35,7 +36,7 @@ func (bc *Blockchain) FindUnspentTransactions(address string) []Transaction {
 					}
 				}
 			}
-			//遍历output 目的找到所有能支配的utxo
+			//遍历output 目的找到所有能支配的utxo 这里有个逻辑如果一区块Utxo的Input解锁地址和一个区块Out锁定地址一样了就是已经消费掉了
 		Outputs:
 			for outIdx, out := range tx.TXOutputs {
 				if spentTXOs[txId] != nil {
@@ -63,7 +64,7 @@ func (bc *Blockchain) FindUTXO(address string) []TXOutput {
 	var Utxos []TXOutput
 	//未使用的UTXO
 	unspentTransactions := bc.FindUnspentTransactions(address)
-	//遍历交易
+	//遍历交易 寻找OutPut是给这个地址的
 	for _, tx := range unspentTransactions {
 		//遍历output
 		for _, out := range tx.TXOutputs {
@@ -106,7 +107,7 @@ func (bc *Blockchain) AddBlock(transactions []*Transaction) {
 		return nil
 	})
 }
-func (bc *Blockchain) FindSpendableOutputs(address string, amount int) (int, map[string][]int) {
+func (bc *Blockchain) FindSuitableUTXOs(address string, amount int) (int, map[string][]int) {
 	unspentOutputs := make(map[string][]int)
 	unspentTXs := bc.FindUnspentTransactions(address)
 	accumulated := 0
@@ -130,7 +131,7 @@ Work:
 const dbFile = "blockchian.db"      //定义数据文件名
 const blocksBucket = "blocks"       //区块桶
 const lastHashKey = "last_hash_key" //区块桶
-// 创建创世块
+// 创建区块链,如果已经创建了，就直接返回
 func NewBlockchain(address string) *Blockchain {
 	if dbExists() == false {
 		fmt.Println("No existing blockchain found. Create one first.")
@@ -142,6 +143,29 @@ func NewBlockchain(address string) *Blockchain {
 		log.Panic(err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(blocksBucket))
+		tip = b.Get([]byte("l"))
+		return nil
+	})
+	if err != nil {
+		log.Panic(err)
+	}
+	bc := Blockchain{tip, db}
+	return &bc
+}
+
+//获取区块链手柄 数据
+func GetBlockChainHandler() *Blockchain {
+	if dbExists() == false {
+		fmt.Println("No existing blockchain found. Create one first.")
+		os.Exit(1)
+	}
+	var tip []byte
+	db, err := bolt.Open(dbFile, 0600, nil)
+	if err != nil {
+		log.Panic(err)
+	}
+	err = db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
 		tip = b.Get([]byte("l"))
 		return nil

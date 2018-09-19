@@ -58,7 +58,7 @@ func checksum(payload []byte) []byte {
 	return secondSHA[:addressChecksumlen]
 }
 
-// 使用RIPEMD160(SHA256(PubKey))哈希算法得到hsahpubkey
+// 使用RIPEMD160(SHA256(PubKey))哈希算法得到Hashpubkey
 func HashPubKey(pubKey []byte) []byte {
 	publicSHA256 := sha256.Sum256(pubKey)
 	RIPEMD160Hasher := crypto.RIPEMD160.New()

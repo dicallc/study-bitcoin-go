@@ -2,16 +2,19 @@ package main
 
 import (
 	"fmt"
-	"golang.org/x/crypto/ripemd160"
+	"utils"
 )
 
 func main() {
-	hasher := ripemd160.New()
-	hasher.Write([]byte("www.baidu.com"))
-	//转成了byte
-	hashBytes := hasher.Sum(nil)
-	//转成hash
-	//mdStr := hex.EncodeToString(md)
-	hashString := fmt.Sprintf("%x", hashBytes)
-	fmt.Println(hashString)
+	bytes := []byte("http://liyuechun.org")
+
+	bytes58 := utils.Base58Encode(bytes)
+
+	fmt.Printf("%x\n", bytes58)
+
+	fmt.Printf("%s\n", bytes58)
+
+	bytesStr := utils.Base58Decode(bytes58)
+
+	fmt.Printf("%s\n", bytesStr[1:])
 }

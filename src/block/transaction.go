@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"utils"
+	"wallet"
 )
 
 //交易事务
@@ -24,21 +25,20 @@ type Transaction struct {
 type TXInput struct {
 	Txid      []byte //交易ID的hash
 	Vout      int    //所引用Output的索引值
-	Signature []byte //签名
-	PubKey    []byte //公钥
+	Signature []byte //数字签名
+	PubKey    []byte //钱包里的公钥
 	//ScriptSig string //解锁脚本
 }
 
 //一个事物输出
 type TXOutput struct {
-	Value int //支付给收款方金额值
-	//ScriptPubKey string //锁定脚本，指定收款方的地址
+	Value      int    //支付给收款方金额值
 	PubKeyHash []byte //解锁脚本key
 }
 
-//检查输入是否使用特定的键来解锁输出
+//判断当前输入是否和某个输出吻合
 func (in *TXInput) UseKey(pubKeyHash []byte) bool {
-	lockingHash := HashPubKey(in.PubKey)
+	lockingHash := wallet.HashPubKey(in.PubKey)
 	return bytes.Compare(lockingHash, pubKeyHash) == 0
 }
 
@@ -155,6 +155,10 @@ func (tx *Transaction) IsCoinbase() bool {
 func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transaction {
 	var inputs []TXInput
 	var outputs []TXOutput
+	wallets, err := wallet.NewWallets()
+	CheckErr(err)
+	part_wallet := wallets.GetWallet(from)
+	wallet.HashPubKey(part_wallet.PublicKey)
 	//返回合适的UTXO
 	acc, validOutputs := bc.FindSuitableUTXOs(from, amount)
 	//判断是否有那么多可花费的币
@@ -167,7 +171,7 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transactio
 		CheckErr(err)
 		//遍历所有引用UTXO的索引，每一个索引需要创建一个Input
 		for _, outindex := range outIndexs {
-			input := TXInput{txID, outindex, from}
+			input := TXInput{txID, outindex, nil, from}
 			inputs = append(inputs, input)
 		}
 	}

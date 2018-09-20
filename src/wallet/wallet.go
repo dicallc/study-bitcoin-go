@@ -1,4 +1,4 @@
-package block
+package wallet
 
 import (
 	"crypto"
@@ -21,10 +21,7 @@ type Wallet struct {
 	使用曲线生成私钥，并从私钥生成公钥
 	*/
 	PrivateKey ecdsa.PrivateKey //私钥
-	publicKey  []byte           //公钥
-}
-type Wallets struct {
-	Wallets map[string]*Wallet
+	PublicKey  []byte           //公钥
 }
 
 //创建一个新钱包
@@ -39,7 +36,7 @@ func NewWallet() *Wallet {
 
 func (w Wallet) GetAddress() []byte {
 	//1.使用 RIPEMD160(SHA256(PubKey)) 哈希算法，取公钥并对其哈希两次
-	pubKeyHash := HashPubKey(w.publicKey)
+	pubKeyHash := HashPubKey(w.PublicKey)
 	//2.给哈希加上地址生成算法版本的前缀
 	versionedPayload := append([]byte{version}, pubKeyHash...)
 	//3.对于第二步生成的结果，使用 SHA256(SHA256(payload)) 再哈希，计算校验和。校验和是结果哈希的前四个字节
@@ -60,10 +57,12 @@ func checksum(payload []byte) []byte {
 
 // 使用RIPEMD160(SHA256(PubKey))哈希算法得到Hashpubkey
 func HashPubKey(pubKey []byte) []byte {
+	//1.256
 	publicSHA256 := sha256.Sum256(pubKey)
+	//2.160
 	RIPEMD160Hasher := crypto.RIPEMD160.New()
 	_, err := RIPEMD160Hasher.Write(publicSHA256[:])
-	CheckErr(err)
+	utils.CheckErr("", err)
 	publicRIPEMD160 := RIPEMD160Hasher.Sum(nil)
 	return publicRIPEMD160
 }
@@ -74,7 +73,7 @@ func newKeyPair() (ecdsa.PrivateKey, []byte) {
 	curve := elliptic.P256()
 	//获取私钥
 	private, err := ecdsa.GenerateKey(curve, rand.Reader)
-	CheckErr(err)
+	utils.CheckErr("", err)
 	//在基于椭圆曲线的算法中，公钥是曲线上的点。因此，公钥是X，Y坐标的组合。在比特币中，这些坐标被连接起来形成一个公钥
 	pubKey := append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
 	return *private, pubKey

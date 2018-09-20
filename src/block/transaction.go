@@ -9,56 +9,15 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"utils"
 	"wallet"
 )
 
 //交易事务
 type Transaction struct {
 	ID        []byte
-	TxInputs  []TXInput  //输入
+	TxInputs  []TxInput  //输入
 	TXOutputs []TXOutput //输出
 
-}
-
-//指明交易发起人可支付资金的来源
-type TXInput struct {
-	Txid      []byte //交易ID的hash
-	Vout      int    //所引用Output的索引值
-	Signature []byte //数字签名
-	PubKey    []byte //钱包里的公钥
-	//ScriptSig string //解锁脚本
-}
-
-//一个事物输出
-type TXOutput struct {
-	Value      int    //支付给收款方金额值
-	PubKeyHash []byte //解锁脚本key
-}
-
-//判断当前输入是否和某个输出吻合
-func (in *TXInput) UseKey(pubKeyHash []byte) bool {
-	lockingHash := wallet.HashPubKey(in.PubKey)
-	return bytes.Compare(lockingHash, pubKeyHash) == 0
-}
-
-//lock只需锁定输出
-func (out *TXOutput) Lock(address []byte) {
-	pubKeyHash := utils.Base58Encode(address)
-	pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-4]
-	out.PubKeyHash = pubKeyHash
-}
-
-//检查提供散列是否用于锁定输出
-func (out *TXOutput) IsLockedWithKey(pubKeyHash []byte) bool {
-	return bytes.Compare(out.PubKeyHash, pubKeyHash) == 0
-}
-
-//新的交易输出
-func NewTxOutput(value int, address string) *TXOutput {
-	txo := &TXOutput{value, nil}
-	txo.Lock([]byte(address))
-	return txo
 }
 
 //设置交易ID hash
@@ -80,26 +39,28 @@ func NewCoinbaseTX(to, data string) *Transaction {
 	if data == "" {
 		data = fmt.Sprintf("Reward to '%s'")
 	}
-	txin := TXInput{[]byte{}, -1, nil, []byte(data)}
+	txin := TxInput{[]byte{}, -1, nil, []byte(data)}
 	//subsidy是奖励的金额
 	txOut := NewTxOutput(subsidy, to)
 	//txout := TXOutput{subsidy, }
-	tx := Transaction{nil, []TXInput{txin}, []TXOutput{*txOut}}
+	tx := Transaction{nil, []TxInput{txin}, []TXOutput{*txOut}}
 	tx.SetID()
 	return &tx
 }
 
-//签名
-func (tx *Transaction) sign(privKey ecdsa.PrivateKey, prevTXs map[string]Transaction) {
+//签名过程
+func (tx *Transaction) Sign(privKey ecdsa.PrivateKey, prevTXs map[string]Transaction) {
 	//判断是否是coinbase交易
 	if tx.IsCoinbase() {
 		return
 	}
+	//TX 也是4
 	for _, vin := range tx.TxInputs {
 		if prevTXs[hex.EncodeToString(vin.Txid)].ID == nil {
 			log.Panic("ERROR: Previous transaction is not correct")
 		}
 	}
+	//Block4 UTXO 4444也拷贝一份
 	txCopy := tx.TrimmedCopy()
 	for inID, vin := range txCopy.TxInputs {
 		prevTx := prevTXs[hex.EncodeToString(vin.Txid)]
@@ -119,14 +80,14 @@ func (tx *Transaction) sign(privKey ecdsa.PrivateKey, prevTXs map[string]Transac
 
 }
 
-//创建一个副本用于签名
+//创建一个副本用于签名 只是Input发生了变化 公钥没了
 func (tx *Transaction) TrimmedCopy() Transaction {
-	var inputs []TXInput
+	var inputs []TxInput
 	var outputs []TXOutput
 
 	for _, vin := range tx.TxInputs {
 		//该副本将包括所有的输入和输出，但TXInput.Signature并TXInput.PubKey设置为零
-		inputs = append(inputs, TXInput{vin.Txid, vin.Vout, nil, nil})
+		inputs = append(inputs, TxInput{vin.Txid, vin.Vout, nil, nil})
 	}
 	for _, vout := range tx.TXOutputs {
 		outputs = append(outputs, TXOutput{vout.Value, vout.PubKeyHash})
@@ -137,30 +98,21 @@ func (tx *Transaction) TrimmedCopy() Transaction {
 	return txCopy
 }
 
-//检查当前的用户能否解开引用的utxo
-//func (in *TXInput) CanUnlockOutputWith(unlockingData string) bool {
-//	return in.ScriptSig == unlockingData
-//}
-
-//检查当前用户时候的utxo的所有者
-//func (out *TXOutput) CanBeUnlockedWith(unlockingData string) bool {
-//	return out.ScriptPubKey == unlockingData
-//}
-
 func (tx *Transaction) IsCoinbase() bool {
 	return len(tx.TxInputs) == 1 && len(tx.TxInputs[0].Txid) == 0 && tx.TxInputs[0].Vout == -1
 }
 
 //创建普通交易，send的辅助函数
 func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transaction {
-	var inputs []TXInput
+	var inputs []TxInput
 	var outputs []TXOutput
 	wallets, err := wallet.NewWallets()
 	CheckErr(err)
 	part_wallet := wallets.GetWallet(from)
-	wallet.HashPubKey(part_wallet.PublicKey)
+	pubKeyHash := wallet.HashPubKey(part_wallet.PublicKey)
+
 	//返回合适的UTXO
-	acc, validOutputs := bc.FindSuitableUTXOs(from, amount)
+	acc, validOutputs := bc.FindSuitableUTXOs(pubKeyHash, amount)
 	//判断是否有那么多可花费的币
 	if acc < amount {
 		log.Panic("ERROR: Not enough funds")
@@ -171,17 +123,19 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transactio
 		CheckErr(err)
 		//遍历所有引用UTXO的索引，每一个索引需要创建一个Input
 		for _, outindex := range outIndexs {
-			input := TXInput{txID, outindex, nil, from}
+			input := TxInput{txID, outindex, nil, pubKeyHash}
 			inputs = append(inputs, input)
 		}
 	}
 	// Build a list of outputs
-	outputs = append(outputs, TXOutput{amount, to})
+	outputs = append(outputs, *NewTxOutput(amount, to))
 	if acc > amount {
-		outputs = append(outputs, TXOutput{acc - amount, from}) // a change
+		outputs = append(outputs, *NewTxOutput(acc-amount, from)) // a change
 	}
 	tx := Transaction{nil, inputs, outputs}
 	tx.SetID()
+	//签名
+	bc.SignTransaction(&tx, part_wallet.PrivateKey)
 	return &tx
 
 }

@@ -1,7 +1,10 @@
 package block
 
 import (
+	"bytes"
+	"crypto/ecdsa"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"
 	"log"
@@ -15,7 +18,7 @@ type Blockchain struct {
 }
 
 //返回指定地址能够支配的utxo的交易集合
-func (bc *Blockchain) FindUnspentTransactions(address string) []Transaction {
+func (bc *Blockchain) FindUnspentTransactions(pubKeyHash []byte) []Transaction {
 	var unspentTXs []Transaction //
 	spentTXOs := make(map[string][]int)
 	//迭代所有区块
@@ -30,7 +33,7 @@ func (bc *Blockchain) FindUnspentTransactions(address string) []Transaction {
 				//目的：找到已经消耗的UTXO，把他们放到一个集合里
 				//需要两个字段来表示使用过的utxo:a.交易id,b.output的缩影
 				for _, input := range tx.TxInputs {
-					if input.CanUnlockOutputWith(address) {
+					if input.UseKey(pubKeyHash) {
 						inTxID := hex.EncodeToString(input.Txid)
 						spentTXOs[inTxID] = append(spentTXOs[inTxID], input.Vout)
 					}
@@ -46,7 +49,7 @@ func (bc *Blockchain) FindUnspentTransactions(address string) []Transaction {
 						}
 					}
 				}
-				if out.CanBeUnlockedWith(address) {
+				if out.IsLockWithKey(pubKeyHash) {
 					unspentTXs = append(unspentTXs, *tx)
 				}
 			}
@@ -60,16 +63,16 @@ func (bc *Blockchain) FindUnspentTransactions(address string) []Transaction {
 }
 
 //寻找指定地址能够使用的utxo
-func (bc *Blockchain) FindUTXO(address string) []TXOutput {
+func (bc *Blockchain) FindUTXO(pubKeyHash []byte) []TXOutput {
 	var Utxos []TXOutput
 	//未使用的UTXO
-	unspentTransactions := bc.FindUnspentTransactions(address)
+	unspentTransactions := bc.FindUnspentTransactions(pubKeyHash)
 	//遍历交易 寻找OutPut是给这个地址的
 	for _, tx := range unspentTransactions {
 		//遍历output
 		for _, out := range tx.TXOutputs {
 			//当前地址拥有的utxo
-			if out.CanBeUnlockedWith(address) {
+			if out.IsLockWithKey(pubKeyHash) {
 				Utxos = append(Utxos, out)
 			}
 		}
@@ -107,15 +110,17 @@ func (bc *Blockchain) AddBlock(transactions []*Transaction) {
 		return nil
 	})
 }
-func (bc *Blockchain) FindSuitableUTXOs(address string, amount int) (int, map[string][]int) {
+
+//FindSpendableOutputs
+func (bc *Blockchain) FindSuitableUTXOs(pubKeyHash []byte, amount int) (int, map[string][]int) {
 	unspentOutputs := make(map[string][]int)
-	unspentTXs := bc.FindUnspentTransactions(address)
+	unspentTXs := bc.FindUnspentTransactions(pubKeyHash)
 	accumulated := 0
 Work:
 	for _, tx := range unspentTXs {
 		txID := hex.EncodeToString(tx.ID)
 		for outIdx, out := range tx.TXOutputs {
-			if out.CanBeUnlockedWith(address) && accumulated < amount {
+			if out.IsLockWithKey(pubKeyHash) && accumulated < amount {
 				accumulated += out.Value
 				unspentOutputs[txID] = append(unspentOutputs[txID], outIdx)
 
@@ -277,6 +282,35 @@ func (bc *Blockchain) MineBlock(transactions []*Transaction) {
 
 		return nil
 	})
+}
+
+func (bc *Blockchain) SignTransaction(tx *Transaction, privKey ecdsa.PrivateKey) {
+	preTXs := make(map[string]Transaction)
+	for _, vin := range tx.TxInputs {
+		preTX, err := bc.FindTransaction(vin.Txid)
+		CheckErr(err)
+		preTXs[hex.EncodeToString(preTX.ID)] = preTX
+	}
+	//{2222222222,2222-UTXO}
+	tx.Sign(privKey, preTXs)
+}
+
+//根据输入id去找相关的UTXO
+func (bc *Blockchain) FindTransaction(ID []byte) (Transaction, error) {
+	bci := bc.Iterator()
+	for {
+		block := bci.Next()
+		for _, tx := range block.Transactions {
+			if bytes.Compare(tx.ID, ID) == 0 {
+				return *tx, nil
+			}
+		}
+		if len(block.PrevBlockHash) == 0 {
+			break
+		}
+	}
+	return Transaction{}, errors.New("Transaction is not found")
+
 }
 
 //关闭方法

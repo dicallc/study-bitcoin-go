@@ -44,9 +44,30 @@ err=ioutil.WriteFile(walletFile,content.Bytes(),0644) //0644是文件权限
 
 就在于小写和大写第一个字母区别
 
+
+
+### **make** 和**new** 的区别
+
+make也是用于内存分配的，但是和new不同，它只用于chan、map以及切片的内存创建
+
+而且它返回的类型就是这三个类型本身，而不是他们的指针类型
+
+因为这三种类型就是引用类型，所以就没有必要返回他们的指针了 
+
 ### 重构过程
 
 1. 引进钱包概念
 2. 修改UTXO的输入输出-主要是重构之前的用户名验证变成数字签名和公钥
-3. 正式去修改UTXO
+3. 正式去修改UTXO-address变成publicHash引发的灾难
+4. 签名的加入修改UTXO
 
+### 签名思考图
+
+![mark](http://7xnk07.com1.z0.glb.clouddn.com/blog/180920/e3mEleDfa1.png?imageslim)
+
+签名过程中Block4是新生成的
+
+图蓝色边代表一个区块，而区块包含UTXO，则红色边就是UTXO
+
+- Block4是要生成的区块
+- Block3是最新的区块

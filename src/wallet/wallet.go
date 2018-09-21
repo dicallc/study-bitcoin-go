@@ -2,16 +2,16 @@ package wallet
 
 import (
 	"bytes"
-	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"golang.org/x/crypto/ripemd160"
 	"utils"
 )
 
 const version = byte(0x00) //16进制 0 版本号
-const walletFile = "db/wallet.dat"
+const walletFile = "wallet.dat"
 const addressChecksumlen = 4 //地址检查长度4
 
 //钱包
@@ -58,7 +58,6 @@ func (w Wallet) GetAddress() []byte {
 	//5.使用 Base58 对 version+PubKeyHash+checksum 组合进行编码
 	address := utils.Base58Encode(fullPayload)
 	return address
-
 }
 
 func checksum(payload []byte) []byte {
@@ -72,7 +71,7 @@ func HashPubKey(pubKey []byte) []byte {
 	//1.256
 	publicSHA256 := sha256.Sum256(pubKey)
 	//2.160
-	RIPEMD160Hasher := crypto.RIPEMD160.New()
+	RIPEMD160Hasher := ripemd160.New()
 	_, err := RIPEMD160Hasher.Write(publicSHA256[:])
 	utils.CheckErr("", err)
 	publicRIPEMD160 := RIPEMD160Hasher.Sum(nil)

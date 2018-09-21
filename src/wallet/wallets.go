@@ -44,7 +44,7 @@ func (ws Wallets) GetWallet(address string) Wallet {
 	return *ws.Wallets[address]
 }
 
-// 加载钱包
+// 加载钱包,读取本地dat 序列化内容至 Wallets
 func (ws *Wallets) LoadFromFile() error {
 	if _, err := os.Stat(walletFile); os.IsNotExist(err) {
 		return err

@@ -3,12 +3,14 @@ package block
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/gob"
 	"encoding/hex"
 	"fmt"
 	"log"
+	"math/big"
 	"wallet"
 )
 
@@ -54,21 +56,22 @@ func (tx *Transaction) Sign(privKey ecdsa.PrivateKey, prevTXs map[string]Transac
 	if tx.IsCoinbase() {
 		return
 	}
-	//TX 也是4
+	//TX 也是4  根据输入去找有不有对应的输出
 	for _, vin := range tx.TxInputs {
 		if prevTXs[hex.EncodeToString(vin.Txid)].ID == nil {
 			log.Panic("ERROR: Previous transaction is not correct")
 		}
 	}
-	//Block4 UTXO 4444也拷贝一份
+	//txCopy Block4 UTXO 4444也拷贝一份 prevTXs:Block2 2222
 	txCopy := tx.TrimmedCopy()
 	for inID, vin := range txCopy.TxInputs {
 		prevTx := prevTXs[hex.EncodeToString(vin.Txid)]
 		txCopy.TxInputs[inID].Signature = nil
+		//所消费的Out公钥被引进作为了pubKey
 		txCopy.TxInputs[inID].PubKey = prevTx.TXOutputs[vin.Vout].PubKeyHash
-		txCopy.SetID()
+		txCopy.ID = txCopy.Hash()
 		txCopy.TxInputs[inID].PubKey = nil
-
+		//真正的签名
 		r, s, err := ecdsa.Sign(rand.Reader, &privKey, txCopy.ID)
 		if err != nil {
 			log.Panic(err)
@@ -78,6 +81,29 @@ func (tx *Transaction) Sign(privKey ecdsa.PrivateKey, prevTXs map[string]Transac
 		tx.TxInputs[inID].Signature = signature
 	}
 
+}
+
+// ID 就是输入和输出序列化后 sha256的值
+func (tx *Transaction) Hash() []byte {
+	var hash [32]byte
+
+	txCopy := *tx
+	txCopy.ID = []byte{}
+	//输入 输出 id
+	hash = sha256.Sum256(txCopy.Serialize())
+
+	return hash[:]
+}
+func (tx Transaction) Serialize() []byte {
+	var encoded bytes.Buffer
+
+	enc := gob.NewEncoder(&encoded)
+	err := enc.Encode(tx)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return encoded.Bytes()
 }
 
 //创建一个副本用于签名 只是Input发生了变化 公钥没了
@@ -106,7 +132,8 @@ func (tx *Transaction) IsCoinbase() bool {
 func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transaction {
 	var inputs []TxInput
 	var outputs []TXOutput
-	wallets, err := wallet.NewWallets()
+
+	wallets, err := wallet.LoadWallets()
 	CheckErr(err)
 	part_wallet := wallets.GetWallet(from)
 	pubKeyHash := wallet.HashPubKey(part_wallet.PublicKey)
@@ -137,5 +164,41 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transactio
 	//签名
 	bc.SignTransaction(&tx, part_wallet.PrivateKey)
 	return &tx
+}
 
+func (tx *Transaction) Verify(prevTXs map[string]Transaction) bool {
+	if tx.IsCoinbase() {
+		return true
+	}
+	for _, vin := range tx.TxInputs {
+		if prevTXs[hex.EncodeToString(vin.Txid)].ID == nil {
+			log.Panic("ERROR: Previous transaction is not correct")
+		}
+	}
+	txCopy := tx.TrimmedCopy()
+	curve := elliptic.P256()
+	for inID, vin := range tx.TxInputs {
+		prevTx := prevTXs[hex.EncodeToString(vin.Txid)]
+		txCopy.TxInputs[inID].Signature = nil
+		txCopy.TxInputs[inID].PubKey = prevTx.TXOutputs[vin.Vout].PubKeyHash
+		txCopy.ID = txCopy.Hash()
+		txCopy.TxInputs[inID].PubKey = nil
+		//私钥 ID
+		r := big.Int{}
+		s := big.Int{}
+		sigLen := len(vin.Signature)
+		r.SetBytes(vin.Signature[:(sigLen / 2)])
+		s.SetBytes(vin.Signature[(sigLen / 2):])
+		x := big.Int{}
+		y := big.Int{}
+		keyLen := len(vin.PubKey)
+		x.SetBytes(vin.PubKey[:(keyLen / 2)])
+		y.SetBytes(vin.PubKey[(keyLen / 2):])
+		rawPubKey := ecdsa.PublicKey{curve, &x, &y}
+		//公钥和id，以及签名数据求证
+		if ecdsa.Verify(&rawPubKey, txCopy.ID, &r, &s) == false {
+			return false
+		}
+	}
+	return true
 }

@@ -252,10 +252,24 @@ func CreateBlockchain(address string) *Blockchain {
 	bc := Blockchain{tip, db}
 	return &bc
 }
+func (bc *Blockchain) VerifyTransaction(tx *Transaction) bool {
+	prevTXs := make(map[string]Transaction)
+	for _, vin := range tx.TxInputs {
+		prevTX, err := bc.FindTransaction(vin.Txid)
+		CheckErr(err)
+		prevTXs[hex.EncodeToString(prevTX.ID)] = prevTX
+	}
+	return tx.Verify(prevTXs)
+}
 
 //开采区块
 func (bc *Blockchain) MineBlock(transactions []*Transaction) {
 	var lastHash []byte //最新一个hash
+	for _, tx := range transactions {
+		if bc.VerifyTransaction(tx) != true {
+			log.Panic("ERROR: Invalid transaction")
+		}
+	}
 	err := bc.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
 		lastHash = b.Get([]byte("l"))

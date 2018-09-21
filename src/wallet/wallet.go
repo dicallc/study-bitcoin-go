@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -30,6 +31,17 @@ func NewWallet() *Wallet {
 	private, public := newKeyPair()
 	wallet := Wallet{private, public}
 	return &wallet
+}
+
+//校验地址
+func ValidateAddress(address string) bool {
+	pubKeyHash := utils.Base58Decode([]byte(address))
+	actualChecksum := pubKeyHash[len(pubKeyHash)-addressChecksumlen:]
+	version := pubKeyHash[0]
+	pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-addressChecksumlen]
+	targetChecksum := checksum(append([]byte{version}, pubKeyHash...))
+
+	return bytes.Compare(actualChecksum, targetChecksum) == 0
 }
 
 //得到一个钱包地址

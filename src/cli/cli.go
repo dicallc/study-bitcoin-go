@@ -27,9 +27,13 @@ func Start() interface{} {
 func (cli *CLI) printUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  createblockchain -address ADDRESS - Create a blockchain and send genesis block reward to ADDRESS")
+	fmt.Println("  exmple： main createblockchain -address 18g2nCpySpuNv39iUBUz3Df37ojYfJw9rX")
 	fmt.Println("  createwallet - Generates a new key-pair and saves it into the wallet file")
+	fmt.Println("  exmple： main createwallet")
 	fmt.Println("  getbalance -address ADDRESS - Get balance of ADDRESS")
+	fmt.Println("  exmple： main getbalance  -address 18g2nCpySpuNv39iUBUz3Df37ojYfJw9rX")
 	fmt.Println("  listaddresses - Lists all addresses from the wallet file")
+	fmt.Println("  exmple：main listaddresses")
 	fmt.Println("  printchain - Print all the blocks of the blockchain")
 	fmt.Println("  send -from FROM -to TO -amount AMOUNT - Send AMOUNT of coins from FROM address to TO")
 }

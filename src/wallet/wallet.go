@@ -36,9 +36,13 @@ func NewWallet() *Wallet {
 //校验地址
 func ValidateAddress(address string) bool {
 	pubKeyHash := utils.Base58Decode([]byte(address))
+	//倒数两个为Checksum
 	actualChecksum := pubKeyHash[len(pubKeyHash)-addressChecksumlen:]
+	//第一个是版本号
 	version := pubKeyHash[0]
+	//剩下全是 pubKeyHash
 	pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-addressChecksumlen]
+	//计算checksum是否一致
 	targetChecksum := checksum(append([]byte{version}, pubKeyHash...))
 
 	return bytes.Compare(actualChecksum, targetChecksum) == 0

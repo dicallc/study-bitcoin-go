@@ -81,9 +81,9 @@ make也是用于内存分配的，但是和new不同，它只用于chan、map以
 1. 公钥哈希存储在解锁输出中，交易的发件人
 2. 公钥哈希存储在新的锁定输出中，交易的收件
 
-### 复习
+### 复习思路
 
-#### 创建钱包
+#### 1.创建钱包
 
 1. 获取Wallets
 
@@ -229,13 +229,42 @@ func HashPubKey(pubKey []byte) []byte {
 
 这里原理就是 参考本文 PublicKey转换成address 的图
 
-#### 创建一个区块链
+#### 2.获取所有钱包地址
+
+```go
+func (cli *CLI) listAddresses() {
+	wallets, err := wallet.LoadWallets()
+	if err != nil {
+		log.Panic(err)
+	}
+	addresses := wallets.GetAddresses()
+
+	for _, address := range addresses {
+		fmt.Println(address)
+	}
+}
+
+//迭代所有钱包地址返回到数组中
+func (ws *Wallets) GetAddresses() []string {
+	var addresses []string
+	for address := range ws.Wallets {
+		addresses = append(addresses, address)
+	}
+	return addresses
+}
+
+
+```
+
+
+
+#### 3.创建一个区块链
 
 1. 校验钱包地址
 2. 创建一个区块链
 3. 关闭数据库
 
-```
+```go
 func (cli *CLI) createBlockchain(address string) {
 	//校验钱包地址
 	if !wallet.ValidateAddress(address) {
@@ -247,7 +276,278 @@ func (cli *CLI) createBlockchain(address string) {
 	block.Close(bc)
 	fmt.Println("Done!")
 }
+
+func ValidateAddress(address string) bool {
+	pubKeyHash := utils.Base58Decode([]byte(address))
+	//倒数两个为Checksum
+	actualChecksum := pubKeyHash[len(pubKeyHash)-addressChecksumlen:]
+	//第一个是版本号
+	version := pubKeyHash[0]
+	//剩下全是 pubKeyHash
+	pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-addressChecksumlen]
+	//计算checksum是否一致
+	targetChecksum := checksum(append([]byte{version}, pubKeyHash...))
+
+	return bytes.Compare(actualChecksum, targetChecksum) == 0
+}
 ```
 
-其中校验钱包地址还是根据那个图还原
+其中校验钱包地址还是根据那个图还原，地址用钱包地址作为区块链地址进行创建
 
+#### 4.send（转账）
+
+这个版本微改了一些东西
+
+比如验证地址正确,UTXO的解锁 加锁变成了 非对称加密的公私钥，数字签名
+
+```go
+//发送
+func (cli *CLI) send(from, to string, amount int) {
+	if !wallet.ValidateAddress(from) {
+		log.Panic("ERROR: Sender address is not valid")
+	}
+	if !wallet.ValidateAddress(to) {
+		log.Panic("ERROR: Recipient address is not valid")
+	}
+	bc := block.GetBlockChainHandler()
+	defer block.Close(bc)
+	//创建新UTXO，放置到新的区块上去
+	tx := block.NewUTXOTransaction(from, to, amount, bc)
+	bc.MineBlock([]*block.Transaction{tx})
+	fmt.Println("Success!")
+}
+```
+
+这里其实没有任何改变,只是在UTXO的输入输出结构变了
+
+```go
+type Transaction struct {
+	ID        []byte
+	TxInputs  []TxInput  //输入
+	TXOutputs []TXOutput //输出
+}
+//输入 收账记录
+type TxInput struct {
+	Txid      []byte //交易ID的hash
+	Vout      int    //所引用Output的索引值
+	Signature []byte //数字签名
+	PubKey    []byte //钱包里的公钥
+}
+//输出 付钱记录
+type TXOutput struct {
+	Value      int    //支付给收款方金额值
+	PubKeyHash []byte 
+}
+```
+
+其中还有几个加锁，解锁的方法比如
+
+##### 输出：
+
+```
+//lock只需锁定输出 人话版本：你给别人钱你的把别人地址给设置进入生成一个输出
+func (out *TXOutput) Lock(address []byte) {
+	//人话：最后的地址 (Base58Decode)解密 ,然后减去后四位的版本信息就得到 pubKeyHash
+	pubKeyHash := utils.Base58Decode(address)
+	pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-4]
+	out.PubKeyHash = pubKeyHash
+}
+
+//检查提供的公钥散列是否用于锁定输出
+func (out *TXOutput) IsLockWithKey(pubKeyHash []byte) bool {
+	return bytes.Compare(out.PubKeyHash, pubKeyHash) == 0
+}
+
+//新的交易输出 人话转账给别人是要锁定一下
+func NewTxOutput(value int, address string) *TXOutput {
+	txo := &TXOutput{value, nil}
+	txo.Lock([]byte(address))
+	return txo
+}
+```
+
+这样保证了，输出给别人的钱，只有接受钱的人能够解锁
+
+
+
+##### 输入：
+
+```
+//判断当前输入是否和某个输出吻合
+func (in *TxInput) UseKey(pubKeyHash []byte) bool {
+	lockingHash := wallet.HashPubKey(in.PubKey)
+	return bytes.Compare(lockingHash, pubKeyHash) == 0
+}
+```
+
+后面这些方法都会用到，回到转账的逻辑中继续
+
+##### NewUTXOTransaction
+
+```go
+func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transaction {
+	var inputs []TxInput
+	var outputs []TXOutput
+	//获取所有钱包地址
+	wallets, err := wallet.LoadWallets()
+	CheckErr(err)
+	//获取付款的钱包
+	part_wallet := wallets.GetWallet(from)
+	pubKeyHash := wallet.HashPubKey(part_wallet.PublicKey)
+
+	//返回合适的UTXO
+	acc, validOutputs := bc.FindSuitableUTXOs(pubKeyHash, amount)
+	//判断是否有那么多可花费的币
+	if acc < amount {
+		log.Panic("ERROR: Not enough funds")
+	}
+	//遍历有效UTXO的合集
+	for txid, outIndexs := range validOutputs {
+		txID, err := hex.DecodeString(txid)
+		CheckErr(err)
+		//遍历所有引用UTXO的索引，每一个索引需要创建一个Input
+		for _, outindex := range outIndexs {
+			input := TxInput{txID, outindex, nil, pubKeyHash}
+			inputs = append(inputs, input)
+		}
+	}
+	// Build a list of outputs
+	outputs = append(outputs, *NewTxOutput(amount, to))
+	if acc > amount {
+		outputs = append(outputs, *NewTxOutput(acc-amount, from)) // a change
+	}
+	tx := Transaction{nil, inputs, outputs}
+	tx.SetID()
+	//签名
+	bc.SignTransaction(&tx, part_wallet.PrivateKey)
+	return &tx
+}
+```
+
+整体思路还是根据from得到钱包，在里面寻找合适UTXO，有合适金额的输出（OutPut）
+
+然后根据输出，创建输入,以便于生成新的UTXO
+
+> 在和上个版本区别：在寻找合适的UTXO中，就把之前的对比地址换成了对比publicHash
+
+当然最重要的是，最后需要签名
+
+```go
+func (bc *Blockchain) SignTransaction(tx *Transaction, privKey ecdsa.PrivateKey) {
+	preTXs := make(map[string]Transaction)
+	//根据传入的UTXO，遍历其输入，找到其中UTXO，这些UTXO基本就是包含其有关输出的
+	for _, vin := range tx.TxInputs {
+		preTX, err := bc.FindTransaction(vin.Txid)
+		CheckErr(err)
+		preTXs[hex.EncodeToString(preTX.ID)] = preTX
+	}
+	//{2222222222,2222-UTXO}
+	tx.Sign(privKey, preTXs)
+}
+//签名过程
+func (tx *Transaction) Sign(privKey ecdsa.PrivateKey, prevTXs map[string]Transaction) {
+	//判断是否是coinbase交易
+	if tx.IsCoinbase() {
+		return
+	}
+	//TX 也是4  根据输入去找有不有对应的输出
+	for _, vin := range tx.TxInputs {
+		if prevTXs[hex.EncodeToString(vin.Txid)].ID == nil {
+			log.Panic("ERROR: Previous transaction is not correct")
+		}
+	}
+	//txCopy Block4 UTXO      4444也拷贝一份 prevTXs:Block2 2222
+	txCopy := tx.TrimmedCopy()
+	//这里for循环就是把制作UTXO的输入 重新做了一遍 防止篡改？
+	for inID, vin := range txCopy.TxInputs {
+		prevTx := prevTXs[hex.EncodeToString(vin.Txid)]
+		txCopy.TxInputs[inID].Signature = nil
+		//所消费的Out公钥被引进作为了pubKey
+		txCopy.TxInputs[inID].PubKey = prevTx.TXOutputs[vin.Vout].PubKeyHash
+		//根据UTXO 数据生成id
+		txCopy.ID = txCopy.Hash()
+		txCopy.TxInputs[inID].PubKey = nil
+		//真正的签名部分 钱包-私钥，UTXO-ID
+		r, s, err := ecdsa.Sign(rand.Reader, &privKey, txCopy.ID)
+		if err != nil {
+			log.Panic(err)
+		}
+		signature := append(r.Bytes(), s.Bytes()...)
+
+		tx.TxInputs[inID].Signature = signature
+	}
+}
+```
+
+这里如果在Sign方法中看不懂就记住  真正的签名部分 钱包-私钥，UTXO-ID
+
+UTXO-ID又是他自己又从原数据中生成数据，创造了一遍输入，生成的
+
+而这些就是签名，而验证签名又在哪里呢
+
+就在开采区块那加上了
+
+##### Verify 验证UTXO
+
+```
+//开采区块
+func (bc *Blockchain) MineBlock(transactions []*Transaction) {
+	var lastHash []byte //最新一个hash
+	for _, tx := range transactions {
+		if bc.VerifyTransaction(tx) != true {
+			log.Panic("ERROR: Invalid transaction")
+		}
+	}
+....
+}
+//验证区块
+func (bc *Blockchain) VerifyTransaction(tx *Transaction) bool {
+	prevTXs := make(map[string]Transaction)
+	for _, vin := range tx.TxInputs {
+		//根据传入的UTXO，遍历其输入，找到其中UTXO，这些UTXO基本就是包含其有关输出的
+		prevTX, err := bc.FindTransaction(vin.Txid)
+		CheckErr(err)
+		prevTXs[hex.EncodeToString(prevTX.ID)] = prevTX
+	}
+	return tx.Verify(prevTXs)
+}
+//验证核心方法
+func (tx *Transaction) Verify(prevTXs map[string]Transaction) bool {
+	if tx.IsCoinbase() {
+		return true
+	}
+	for _, vin := range tx.TxInputs {
+		if prevTXs[hex.EncodeToString(vin.Txid)].ID == nil {
+			log.Panic("ERROR: Previous transaction is not correct")
+		}
+	}
+	txCopy := tx.TrimmedCopy()
+	curve := elliptic.P256()
+	for inID, vin := range tx.TxInputs {
+		prevTx := prevTXs[hex.EncodeToString(vin.Txid)]
+		txCopy.TxInputs[inID].Signature = nil
+		txCopy.TxInputs[inID].PubKey = prevTx.TXOutputs[vin.Vout].PubKeyHash
+		txCopy.ID = txCopy.Hash()
+		txCopy.TxInputs[inID].PubKey = nil
+		//私钥 ID
+		r := big.Int{}
+		s := big.Int{}
+		sigLen := len(vin.Signature)
+		r.SetBytes(vin.Signature[:(sigLen / 2)])
+		s.SetBytes(vin.Signature[(sigLen / 2):])
+		x := big.Int{}
+		y := big.Int{}
+		keyLen := len(vin.PubKey)
+		x.SetBytes(vin.PubKey[:(keyLen / 2)])
+		y.SetBytes(vin.PubKey[(keyLen / 2):])
+		rawPubKey := ecdsa.PublicKey{curve, &x, &y}
+		//公钥和id，以及签名数据求证
+		if ecdsa.Verify(&rawPubKey, txCopy.ID, &r, &s) == false {
+			return false
+		}
+	}
+	return true
+}
+```
+
+验证主要也只能拿公钥和ID去，这就是非对称加密的使用了

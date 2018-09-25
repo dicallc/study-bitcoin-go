@@ -9,7 +9,6 @@ import (
 type TXOutput struct {
 	Value      int    //支付给收款方金额值
 	PubKeyHash []byte //解锁脚本key
-	//Ripemd160Hash []byte //用户名
 }
 
 //lock只需锁定输出 人话版本：你给别人钱你的把别人地址给设置进入生成一个输出
@@ -25,8 +24,7 @@ func (out *TXOutput) IsLockWithKey(pubKeyHash []byte) bool {
 	return bytes.Compare(out.PubKeyHash, pubKeyHash) == 0
 }
 
-//新的交易输出
-
+//新的交易输出 人话转账给别人是要锁定一下
 func NewTxOutput(value int, address string) *TXOutput {
 	txo := &TXOutput{value, nil}
 	txo.Lock([]byte(address))

@@ -255,6 +255,7 @@ func CreateBlockchain(address string) *Blockchain {
 func (bc *Blockchain) VerifyTransaction(tx *Transaction) bool {
 	prevTXs := make(map[string]Transaction)
 	for _, vin := range tx.TxInputs {
+		//根据传入的UTXO，遍历其输入，找到其中UTXO，这些UTXO基本就是包含其有关输出的
 		prevTX, err := bc.FindTransaction(vin.Txid)
 		CheckErr(err)
 		prevTXs[hex.EncodeToString(prevTX.ID)] = prevTX
@@ -300,6 +301,7 @@ func (bc *Blockchain) MineBlock(transactions []*Transaction) {
 
 func (bc *Blockchain) SignTransaction(tx *Transaction, privKey ecdsa.PrivateKey) {
 	preTXs := make(map[string]Transaction)
+	//根据传入的UTXO，遍历其输入，找到其中UTXO，这些UTXO基本就是包含其有关输出的
 	for _, vin := range tx.TxInputs {
 		preTX, err := bc.FindTransaction(vin.Txid)
 		CheckErr(err)

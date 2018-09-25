@@ -6,4 +6,5 @@ import (
 
 func main() {
 	cli.Start()
+	//cli.TestSend(*sendFrom, *sendTo, *sendAmount)
 }

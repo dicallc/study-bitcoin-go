@@ -62,16 +62,18 @@ func (tx *Transaction) Sign(privKey ecdsa.PrivateKey, prevTXs map[string]Transac
 			log.Panic("ERROR: Previous transaction is not correct")
 		}
 	}
-	//txCopy Block4 UTXO 4444也拷贝一份 prevTXs:Block2 2222
+	//txCopy Block4 UTXO      4444也拷贝一份 prevTXs:Block2 2222
 	txCopy := tx.TrimmedCopy()
+	//这里for循环就是把制作UTXO的输入 重新做了一遍 防止篡改？
 	for inID, vin := range txCopy.TxInputs {
 		prevTx := prevTXs[hex.EncodeToString(vin.Txid)]
 		txCopy.TxInputs[inID].Signature = nil
 		//所消费的Out公钥被引进作为了pubKey
 		txCopy.TxInputs[inID].PubKey = prevTx.TXOutputs[vin.Vout].PubKeyHash
+		//根据UTXO 数据生成id
 		txCopy.ID = txCopy.Hash()
 		txCopy.TxInputs[inID].PubKey = nil
-		//真正的签名
+		//真正的签名部分 钱包-私钥，UTXO-ID
 		r, s, err := ecdsa.Sign(rand.Reader, &privKey, txCopy.ID)
 		if err != nil {
 			log.Panic(err)
@@ -80,7 +82,6 @@ func (tx *Transaction) Sign(privKey ecdsa.PrivateKey, prevTXs map[string]Transac
 
 		tx.TxInputs[inID].Signature = signature
 	}
-
 }
 
 // ID 就是输入和输出序列化后 sha256的值
@@ -132,9 +133,10 @@ func (tx *Transaction) IsCoinbase() bool {
 func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transaction {
 	var inputs []TxInput
 	var outputs []TXOutput
-
+	//获取所有钱包地址
 	wallets, err := wallet.LoadWallets()
 	CheckErr(err)
+	//获取付款的钱包
 	part_wallet := wallets.GetWallet(from)
 	pubKeyHash := wallet.HashPubKey(part_wallet.PublicKey)
 
@@ -150,7 +152,7 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transactio
 		CheckErr(err)
 		//遍历所有引用UTXO的索引，每一个索引需要创建一个Input
 		for _, outindex := range outIndexs {
-			input := TxInput{txID, outindex, nil, pubKeyHash}
+			input := TxInput{txID, outindex, nil, part_wallet.PublicKey}
 			inputs = append(inputs, input)
 		}
 	}
@@ -168,6 +170,7 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transactio
 
 func (tx *Transaction) Verify(prevTXs map[string]Transaction) bool {
 	if tx.IsCoinbase() {
+		log.Panic("IsCoinbase")
 		return true
 	}
 	for _, vin := range tx.TxInputs {

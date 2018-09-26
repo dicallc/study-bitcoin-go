@@ -15,10 +15,10 @@ type Wallets struct {
 	Wallets map[string]*Wallet //map集合
 }
 
-func LoadWallets() (*Wallets, error) {
+func LoadWallets(nodeID string) (*Wallets, error) {
 	wallets := Wallets{}
 	wallets.Wallets = make(map[string]*Wallet)
-	err := wallets.LoadFromFile()
+	err := wallets.LoadFromFile(nodeID)
 	return &wallets, err
 }
 
@@ -45,7 +45,8 @@ func (ws Wallets) GetWallet(address string) Wallet {
 }
 
 // 加载钱包,读取本地dat 序列化内容至 Wallets
-func (ws *Wallets) LoadFromFile() error {
+func (ws *Wallets) LoadFromFile(nodeID string) error {
+	walletFile := fmt.Sprintf(walletFile, nodeID)
 	if _, err := os.Stat(walletFile); os.IsNotExist(err) {
 		return err
 	}

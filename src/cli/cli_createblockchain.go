@@ -18,5 +18,8 @@ func (cli *CLI) createBlockchain(address string) {
 	bc := block.CreateBlockchain(address)
 	//关闭数据库
 	block.Close(bc)
+	//重置UTXO集
+	UTXOSet := block.UTXOSet{bc}
+	UTXOSet.Reindex()
 	fmt.Println("Done!")
 }

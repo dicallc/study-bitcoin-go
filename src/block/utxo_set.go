@@ -93,7 +93,7 @@ func (u UTXOSet) CountTransactions() int {
 }
 
 //使用UTXO找到未花费输出，然后在数据库中进行存储。这里就是缓存的地方
-func (u UTXOSet) Renindex() {
+func (u UTXOSet) Reindex() {
 	db := u.Blockchain.db
 	bucketName := []byte(utxoBucket)
 	err := db.Update(func(tx *bolt.Tx) error {

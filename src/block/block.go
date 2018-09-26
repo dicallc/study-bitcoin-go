@@ -2,7 +2,6 @@ package block
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/gob"
 	"time"
 )
@@ -14,12 +13,13 @@ type Block struct {
 	PrevBlockHash []byte         //存储前一个区块的Hase值
 	Timestamp     int64          //生成区块的时间
 	Nonce         int            //工作量证明算法的计数器
+	Height        int
 }
 
 //生成一个新的区块方法
-func NewBlock(transactions []*Transaction, prevBlockHash []byte) *Block {
+func NewBlock(transactions []*Transaction, prevBlockHash []byte, height int) *Block {
 	//GO语言给Block赋值{}里面属性顺序可以打乱，但必须制定元素 如{Timestamp:time.Now().Unix()...}
-	block := &Block{Timestamp: time.Now().Unix(), Transactions: transactions, PrevBlockHash: prevBlockHash, Hash: []byte{}, Nonce: 0}
+	block := &Block{Timestamp: time.Now().Unix(), Transactions: transactions, PrevBlockHash: prevBlockHash, Hash: []byte{}, Nonce: 0, Height: height}
 
 	//工作证明
 	pow := NewProofOfWork(block)
@@ -53,18 +53,17 @@ func (i *Block) Validate() bool {
 	return NewProofOfWork(i).Validate()
 }
 
-//粗略
+//需要将Txs转换成[]byte
 func (b *Block) HashTransactions() []byte {
-	var txHashes [][]byte
-	var txHash [32]byte
+	var transactions [][]byte
 	for _, tx := range b.Transactions {
-		txHashes = append(txHashes, tx.ID)
+		transactions = append(transactions, tx.Serialize())
 	}
-	txHash = sha256.Sum256(bytes.Join(txHashes, []byte{}))
-	return txHash[:]
+	mTree := NewMerkleTree(transactions)
+	return mTree.RootNode.Data
 }
 
 //创世块方法
 func NewGenesisBlock(coinbase *Transaction) *Block {
-	return NewBlock([]*Transaction{coinbase}, []byte{})
+	return NewBlock([]*Transaction{coinbase}, []byte{}, 0)
 }

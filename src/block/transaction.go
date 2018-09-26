@@ -124,47 +124,58 @@ func (tx *Transaction) TrimmedCopy() Transaction {
 
 	return txCopy
 }
+func DeserializeTransaction(data []byte) Transaction {
+	var transaction Transaction
+
+	decoder := gob.NewDecoder(bytes.NewReader(data))
+	err := decoder.Decode(&transaction)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return transaction
+}
 
 func (tx *Transaction) IsCoinbase() bool {
 	return len(tx.TxInputs) == 1 && len(tx.TxInputs[0].Txid) == 0 && tx.TxInputs[0].Vout == -1
 }
 
 //创建普通交易，send的辅助函数
-func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transaction {
+func NewUTXOTransaction(mWallet *wallet.Wallet, to string, amount int, UTXOSet *UTXOSet) *Transaction {
 	var inputs []TxInput
 	var outputs []TXOutput
-	//获取所有钱包地址
-	wallets, err := wallet.LoadWallets()
-	CheckErr(err)
-	//获取付款的钱包
-	part_wallet := wallets.GetWallet(from)
-	pubKeyHash := wallet.HashPubKey(part_wallet.PublicKey)
 
-	//返回合适的UTXO
-	acc, validOutputs := bc.FindSuitableUTXOs(pubKeyHash, amount)
-	//判断是否有那么多可花费的币
+	pubKeyHash := wallet.HashPubKey(mWallet.PublicKey)
+	acc, validOutputs := UTXOSet.FindSpendableOutputs(pubKeyHash, amount)
+
 	if acc < amount {
 		log.Panic("ERROR: Not enough funds")
 	}
-	//遍历有效UTXO的合集
-	for txid, outIndexs := range validOutputs {
+
+	// Build a list of inputs
+	for txid, outs := range validOutputs {
 		txID, err := hex.DecodeString(txid)
-		CheckErr(err)
-		//遍历所有引用UTXO的索引，每一个索引需要创建一个Input
-		for _, outindex := range outIndexs {
-			input := TxInput{txID, outindex, nil, part_wallet.PublicKey}
+		if err != nil {
+			log.Panic(err)
+		}
+
+		for _, out := range outs {
+			input := TxInput{txID, out, nil, mWallet.PublicKey}
 			inputs = append(inputs, input)
 		}
 	}
+
 	// Build a list of outputs
+	from := fmt.Sprintf("%s", mWallet.GetAddress())
 	outputs = append(outputs, *NewTxOutput(amount, to))
 	if acc > amount {
 		outputs = append(outputs, *NewTxOutput(acc-amount, from)) // a change
 	}
+
 	tx := Transaction{nil, inputs, outputs}
-	tx.SetID()
-	//签名
-	bc.SignTransaction(&tx, part_wallet.PrivateKey)
+	tx.ID = tx.Hash()
+	UTXOSet.Blockchain.SignTransaction(&tx, mWallet.PrivateKey)
+
 	return &tx
 }
 

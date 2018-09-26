@@ -63,7 +63,7 @@ func (bc *Blockchain) FindUnspentTransactions(pubKeyHash []byte) []Transaction {
 }
 
 //寻找指定地址能够使用的utxo
-func (bc *Blockchain) FindUTXO(pubKeyHash []byte) []TXOutput {
+func (bc *Blockchain) FindUTXO() map[string]TXOutputs {
 	var Utxos []TXOutput
 	//未使用的UTXO
 	unspentTransactions := bc.FindUnspentTransactions(pubKeyHash)
